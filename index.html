@@ -285,26 +285,22 @@ function renderCampaigns(list){
   }
   els.campCount.textContent = `${list.length} total`;
   const rows = list.map(c => {
-    const name = c.CampaignName || c.campaignName || c.name || '—';
+    const name = c.Campaign || c.CampaignName || c.campaignName || c.name || '—';
     const type = c.CampaignType || c.campaignType || c.Type || '—';
     const status = c.Position || c.Status || c.status || c.campaignStatus || '—';
     const did = c.DID || c.did || '—';
-    const priority = c.Priority || c.priority || c.CampaignPriority || '—';
-    const fresh = c.FreshCount || c.freshCount || c.Fresh || '—';
-    const pending = c.PendingCount || c.pendingCount || c.Pending || c.TotalPending || '—';
+    const id = c.CampaignID || c.campaignId || '—';
     return `<tr>
       <td>${name}</td>
       <td>${type}</td>
       <td><span class="status-pill ${statusClass(status)}"><span class="sd"></span>${status}</span></td>
       <td>${did}</td>
-      <td>${priority}</td>
-      <td>${fresh}</td>
-      <td>${pending}</td>
+      <td>${id}</td>
     </tr>`;
   }).join('');
   els.campaignArea.innerHTML = `
     <table>
-      <thead><tr><th>Campaign</th><th>Type</th><th>Status</th><th>DID</th><th>Priority</th><th>Fresh</th><th>Pending</th></tr></thead>
+      <thead><tr><th>Campaign</th><th>Type</th><th>Status</th><th>DID</th><th>Campaign ID</th></tr></thead>
       <tbody>${rows}</tbody>
     </table>`;
 }
@@ -317,7 +313,7 @@ document.getElementById('btnLoad').addEventListener('click', async () => {
   const res = await callApi('/ca_apis/getAvailableCampaigns', {}, 'GET');
   btn.disabled = false;
   if (res.ok) {
-    const list = res.data.Campaigns || res.data.campaigns || res.data.data || res.data;
+    const list = res.data.message || res.data.Campaigns || res.data.campaigns || res.data.data || res.data;
     renderCampaigns(Array.isArray(list) ? list : []);
   } else {
     els.campaignArea.innerHTML = `<div class="empty"><span class="big">⚠</span>Request failed — check Debug Log below</div>`;
