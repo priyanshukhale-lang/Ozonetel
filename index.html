@@ -71,6 +71,13 @@
     flex:1;background:#0d1315;border:1px solid var(--line);border-radius:7px;
     color:var(--text);padding:9px 12px;font-family:var(--mono);font-size:12.5px;
   }
+  #statusFilter{
+    background:#0d1315;border:1px solid var(--line);border-radius:7px;
+    color:var(--text);padding:9px 12px;font-family:var(--mono);font-size:12px;
+  }
+  th.sortable{cursor:pointer;user-select:none}
+  th.sortable:hover{color:var(--amber)}
+  th.sortable .arrow{opacity:.5;margin-left:4px}
 
   .panel{
     background:var(--panel);border:1px solid var(--line);border-radius:10px;
@@ -165,6 +172,16 @@
   <div class="toolbar">
     <button id="btnLoad">Load Campaigns</button>
     <button class="secondary" id="btnClearLog">Clear Log</button>
+    <div class="search-row">
+      <input id="filterInput" placeholder="Filter by campaign name or DID…">
+    </div>
+    <select id="statusFilter">
+      <option value="">All statuses</option>
+      <option value="READY">Ready</option>
+      <option value="RUNNING">Running</option>
+      <option value="COMPLETED">Completed</option>
+      <option value="STOPPED">Stopped</option>
+    </select>
   </div>
 
   <div class="panel">
@@ -277,19 +294,68 @@ function statusClass(pos){
   return 'st-error';
 }
 
-function renderCampaigns(list){
-  if (!Array.isArray(list) || list.length === 0){
+let allCampaigns = [];
+let sortState = { key: null, dir: 1 };
+
+function getField(c, key){
+  switch(key){
+    case 'name': return c.Campaign || c.CampaignName || c.campaignName || c.name || '';
+    case 'type': return c.CampaignType || c.campaignType || c.Type || '';
+    case 'status': return c.Position || c.Status || c.status || c.campaignStatus || '';
+    case 'did': return c.DID || c.did || '';
+    case 'id': return c.CampaignID || c.campaignId || '';
+    default: return '';
+  }
+}
+
+function applyFilterSort(){
+  const q = (document.getElementById('filterInput').value || '').toLowerCase();
+  const statusF = document.getElementById('statusFilter').value;
+
+  let list = allCampaigns.filter(c => {
+    const name = getField(c,'name').toLowerCase();
+    const did = String(getField(c,'did')).toLowerCase();
+    const status = String(getField(c,'status')).toUpperCase();
+    const matchesQ = !q || name.includes(q) || did.includes(q);
+    const matchesStatus = !statusF || status.includes(statusF);
+    return matchesQ && matchesStatus;
+  });
+
+  if (sortState.key){
+    list = list.slice().sort((a,b) => {
+      const av = String(getField(a, sortState.key)).toLowerCase();
+      const bv = String(getField(b, sortState.key)).toLowerCase();
+      if (av < bv) return -1 * sortState.dir;
+      if (av > bv) return 1 * sortState.dir;
+      return 0;
+    });
+  }
+
+  renderCampaigns(list, allCampaigns.length);
+}
+
+function renderCampaigns(list, totalCount){
+  const total = totalCount !== undefined ? totalCount : list.length;
+  if (!Array.isArray(allCampaigns) || allCampaigns.length === 0){
     els.campaignArea.innerHTML = `<div class="empty"><span class="big">∅</span>No campaigns returned</div>`;
     els.campCount.textContent = '0';
     return;
   }
-  els.campCount.textContent = `${list.length} total`;
+  els.campCount.textContent = list.length === total ? `${total} total` : `${list.length} of ${total}`;
+
+  if (list.length === 0){
+    els.campaignArea.innerHTML = `<div class="empty"><span class="big">∅</span>No campaigns match this filter</div>`;
+    return;
+  }
+
+  const arrow = (key) => sortState.key === key ? `<span class="arrow">${sortState.dir === 1 ? '▲' : '▼'}</span>` : '';
+
   const rows = list.map(c => {
-    const name = c.Campaign || c.CampaignName || c.campaignName || c.name || '—';
-    const type = c.CampaignType || c.campaignType || c.Type || '—';
-    const status = c.Position || c.Status || c.status || c.campaignStatus || '—';
-    const did = c.DID || c.did || '—';
-    const id = c.CampaignID || c.campaignId || '—';
+    const name = getField(c,'name') || '—';
+    const type = getField(c,'type') || '—';
+    const status = getField(c,'status') || '—';
+    const did = getField(c,'did') || '—';
+    const id = getField(c,'id') || '—';
     return `<tr>
       <td>${name}</td>
       <td>${type}</td>
@@ -298,12 +364,31 @@ function renderCampaigns(list){
       <td>${id}</td>
     </tr>`;
   }).join('');
+
   els.campaignArea.innerHTML = `
     <table>
-      <thead><tr><th>Campaign</th><th>Type</th><th>Status</th><th>DID</th><th>Campaign ID</th></tr></thead>
+      <thead><tr>
+        <th class="sortable" data-key="name">Campaign${arrow('name')}</th>
+        <th class="sortable" data-key="type">Type${arrow('type')}</th>
+        <th class="sortable" data-key="status">Status${arrow('status')}</th>
+        <th class="sortable" data-key="did">DID${arrow('did')}</th>
+        <th class="sortable" data-key="id">Campaign ID${arrow('id')}</th>
+      </tr></thead>
       <tbody>${rows}</tbody>
     </table>`;
+
+  els.campaignArea.querySelectorAll('th.sortable').forEach(th => {
+    th.addEventListener('click', () => {
+      const key = th.dataset.key;
+      if (sortState.key === key) sortState.dir *= -1;
+      else { sortState.key = key; sortState.dir = 1; }
+      applyFilterSort();
+    });
+  });
 }
+
+document.getElementById('filterInput').addEventListener('input', applyFilterSort);
+document.getElementById('statusFilter').addEventListener('change', applyFilterSort);
 
 
 
@@ -314,7 +399,11 @@ document.getElementById('btnLoad').addEventListener('click', async () => {
   btn.disabled = false;
   if (res.ok) {
     const list = res.data.message || res.data.Campaigns || res.data.campaigns || res.data.data || res.data;
-    renderCampaigns(Array.isArray(list) ? list : []);
+    allCampaigns = Array.isArray(list) ? list : [];
+    sortState = { key: null, dir: 1 };
+    document.getElementById('filterInput').value = '';
+    document.getElementById('statusFilter').value = '';
+    applyFilterSort();
   } else {
     els.campaignArea.innerHTML = `<div class="empty"><span class="big">⚠</span>Request failed — check Debug Log below</div>`;
   }
