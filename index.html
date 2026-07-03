@@ -156,18 +156,15 @@
   </details>
 
   <div class="note" id="setupNote">
-    <b>Deployed on Vercel:</b> requests route through <b>/api/proxy</b>, a serverless function that calls Ozonetel
-    server-side (no CORS issue there). If a request still fails, check the Debug Log below and paste me the error —
-    the exact endpoint path/casing couldn't be 100% verified from Ozonetel's JS-rendered docs, so it may need a one-line fix.
+    <b>Live feed only:</b> requests route through <b>/api/proxy</b>, a serverless function that calls Ozonetel's
+    <b>getAvailableCampaigns</b> server-side. Click <b>Load Campaigns</b> below. If Priority / Fresh / Pending show as
+    <b>—</b>, it means this endpoint doesn't return those fields — check the Debug Log for the raw response so we can
+    confirm what's actually available live.
   </div>
 
   <div class="toolbar">
     <button id="btnLoad">Load Campaigns</button>
     <button class="secondary" id="btnClearLog">Clear Log</button>
-    <div class="search-row">
-      <input id="phoneInput" placeholder="Lookup phone number(s), comma-separated…">
-      <button class="secondary" id="btnLookup">Lookup</button>
-    </div>
   </div>
 
   <div class="panel">
@@ -178,14 +175,6 @@
     <div id="campaignArea">
       <div class="empty"><span class="big">◌</span>No data loaded yet — click "Load Campaigns"</div>
     </div>
-  </div>
-
-  <div class="panel" id="lookupPanel" style="display:none">
-    <div class="panel-head">
-      <h2>Phone Number Lookup</h2>
-      <span class="count-badge" id="lookupCount">—</span>
-    </div>
-    <div id="lookupArea"></div>
   </div>
 
   <div class="panel">
@@ -205,10 +194,6 @@ const els = {
   connLabel: document.getElementById('connLabel'),
   campaignArea: document.getElementById('campaignArea'),
   campCount: document.getElementById('campCount'),
-  lookupPanel: document.getElementById('lookupPanel'),
-  lookupArea: document.getElementById('lookupArea'),
-  lookupCount: document.getElementById('lookupCount'),
-  phoneInput: document.getElementById('phoneInput'),
 };
 
 function logLine(msg, cls){
@@ -304,40 +289,27 @@ function renderCampaigns(list){
     const type = c.CampaignType || c.campaignType || c.Type || '—';
     const status = c.Position || c.Status || c.status || c.campaignStatus || '—';
     const did = c.DID || c.did || '—';
+    const priority = c.Priority || c.priority || c.CampaignPriority || '—';
+    const fresh = c.FreshCount || c.freshCount || c.Fresh || '—';
+    const pending = c.PendingCount || c.pendingCount || c.Pending || c.TotalPending || '—';
     return `<tr>
       <td>${name}</td>
       <td>${type}</td>
       <td><span class="status-pill ${statusClass(status)}"><span class="sd"></span>${status}</span></td>
       <td>${did}</td>
+      <td>${priority}</td>
+      <td>${fresh}</td>
+      <td>${pending}</td>
     </tr>`;
   }).join('');
   els.campaignArea.innerHTML = `
     <table>
-      <thead><tr><th>Campaign</th><th>Type</th><th>Status</th><th>DID</th></tr></thead>
+      <thead><tr><th>Campaign</th><th>Type</th><th>Status</th><th>DID</th><th>Priority</th><th>Fresh</th><th>Pending</th></tr></thead>
       <tbody>${rows}</tbody>
     </table>`;
 }
 
-function renderLookup(list){
-  els.lookupPanel.style.display = 'block';
-  if (!Array.isArray(list) || list.length === 0){
-    els.lookupArea.innerHTML = `<div class="empty"><span class="big">∅</span>No records found for that number</div>`;
-    els.lookupCount.textContent = '0';
-    return;
-  }
-  els.lookupCount.textContent = `${list.length} record(s)`;
-  const rows = list.map(r => {
-    const num = r.PhoneNumber || r.phoneNumber || '—';
-    const camp = r.CampaignName || r.campaignName || '—';
-    const lead = r.LeadStatus || r.leadStatus || r.Status || '—';
-    return `<tr><td>${num}</td><td>${camp}</td><td><span class="status-pill st-ready"><span class="sd"></span>${lead}</span></td></tr>`;
-  }).join('');
-  els.lookupArea.innerHTML = `
-    <table>
-      <thead><tr><th>Phone Number</th><th>Campaign</th><th>Lead Status</th></tr></thead>
-      <tbody>${rows}</tbody>
-    </table>`;
-}
+
 
 document.getElementById('btnLoad').addEventListener('click', async () => {
   const btn = document.getElementById('btnLoad');
@@ -352,21 +324,7 @@ document.getElementById('btnLoad').addEventListener('click', async () => {
   }
 });
 
-document.getElementById('btnLookup').addEventListener('click', async () => {
-  const phones = els.phoneInput.value.trim();
-  if (!phones) return;
-  const btn = document.getElementById('btnLookup');
-  btn.disabled = true;
-  const res = await callApi('/ca_apis/campaigns/lookup/phoneNumber', { phoneNumber: phones }, 'POST');
-  btn.disabled = false;
-  if (res.ok) {
-    const list = res.data.Data || res.data.data || res.data.records || res.data;
-    renderLookup(Array.isArray(list) ? list : []);
-  } else {
-    els.lookupPanel.style.display = 'block';
-    els.lookupArea.innerHTML = `<div class="empty"><span class="big">⚠</span>Request failed — check Debug Log below</div>`;
-  }
-});
+
 
 document.getElementById('btnClearLog').addEventListener('click', () => {
   els.log.innerHTML = '';
