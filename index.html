@@ -258,7 +258,7 @@ async function callApi(path, params, method='GET'){
       return { ok:false, status:wrapper.upstream_status, data:wrapper.data };
     }
 
-    logLine(`← Ozonetel HTTP ${wrapper.upstream_status} OK`, 'ok');
+    logLine(`← Ozonetel HTTP ${wrapper.upstream_status} OK — raw: ${JSON.stringify(wrapper.data).slice(0,800)}`, 'ok');
     setConn(true);
     return { ok:true, status:wrapper.upstream_status, data:wrapper.data };
   } catch (err) {
