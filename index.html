@@ -131,6 +131,21 @@
     border-radius:0 6px 6px 0;
   }
   .note b{color:var(--amber)}
+
+  .summary-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;padding:16px 18px}
+  .scard{background:var(--panel-2);border:1px solid var(--line);border-radius:8px;padding:12px 14px}
+  .scard .n{font-family:var(--mono);font-size:22px;color:var(--amber);font-weight:600}
+  .scard .l{font-family:var(--mono);font-size:10px;color:var(--dim);text-transform:uppercase;letter-spacing:.04em;margin-top:2px}
+
+  .agent-row{display:flex;gap:10px;padding:16px 18px;align-items:center;flex-wrap:wrap}
+  .agent-row input{
+    background:#0d1315;border:1px solid var(--line);border-radius:7px;
+    color:var(--text);padding:9px 12px;font-family:var(--mono);font-size:12.5px;width:200px;
+  }
+  .kv-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:1px;background:var(--line)}
+  .kv{background:var(--panel);padding:10px 14px}
+  .kv .k{font-family:var(--mono);font-size:10px;color:var(--dim);text-transform:uppercase}
+  .kv .v{font-family:var(--mono);font-size:13px;color:var(--text);margin-top:3px}
 </style>
 </head>
 <body>
@@ -182,6 +197,17 @@
       <option value="COMPLETED">Completed</option>
       <option value="STOPPED">Stopped</option>
     </select>
+    <select id="typeFilter">
+      <option value="">All types</option>
+    </select>
+    <button class="secondary" id="btnExport">Export CSV</button>
+    <label style="display:flex;align-items:center;gap:6px;font-family:var(--mono);font-size:11.5px;color:var(--dim)">
+      <input type="checkbox" id="autoRefresh"> Auto-refresh (30s)
+    </label>
+  </div>
+
+  <div class="panel" id="summaryPanel" style="display:none">
+    <div class="summary-cards" id="statSummary"></div>
   </div>
 
   <div class="panel">
@@ -191,6 +217,20 @@
     </div>
     <div id="campaignArea">
       <div class="empty"><span class="big">◌</span>No data loaded yet — click "Load Campaigns"</div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-head">
+      <h2>Agent Lookup</h2>
+      <span class="count-badge">by Agent ID</span>
+    </div>
+    <div class="agent-row">
+      <input id="agentIdInput" placeholder="Agent ID…">
+      <button id="btnAgentLookup">Lookup Agent</button>
+    </div>
+    <div id="agentArea" style="padding:0 18px 18px">
+      <div class="empty" style="padding:20px"><span class="big">◌</span>Enter an Agent ID to see live status, skill, and phone details</div>
     </div>
   </div>
 
@@ -296,6 +336,53 @@ function statusClass(pos){
 
 let allCampaigns = [];
 let sortState = { key: null, dir: 1 };
+let lastFilteredList = [];
+
+function populateTypeFilter(){
+  const sel = document.getElementById('typeFilter');
+  const current = sel.value;
+  const types = [...new Set(allCampaigns.map(c => getField(c,'type')).filter(Boolean))].sort();
+  sel.innerHTML = `<option value="">All types</option>` + types.map(t => `<option value="${t}">${t}</option>`).join('');
+  if (types.includes(current)) sel.value = current;
+}
+
+function renderSummary(list){
+  const panel = document.getElementById('summaryPanel');
+  const box = document.getElementById('statSummary');
+  if (allCampaigns.length === 0){ panel.style.display = 'none'; return; }
+  panel.style.display = 'block';
+
+  const byStatus = {};
+  const byType = {};
+  allCampaigns.forEach(c => {
+    const s = (getField(c,'status') || 'UNKNOWN').toUpperCase();
+    const t = getField(c,'type') || 'UNKNOWN';
+    byStatus[s] = (byStatus[s]||0) + 1;
+    byType[t] = (byType[t]||0) + 1;
+  });
+
+  const cards = [
+    `<div class="scard"><div class="n">${allCampaigns.length}</div><div class="l">Total campaigns</div></div>`,
+    ...Object.entries(byStatus).map(([k,v]) => `<div class="scard"><div class="n">${v}</div><div class="l">${k}</div></div>`),
+    ...Object.entries(byType).map(([k,v]) => `<div class="scard"><div class="n">${v}</div><div class="l">${k} type</div></div>`),
+  ];
+  box.innerHTML = cards.join('');
+}
+
+function exportCsv(list){
+  if (!list.length){ logLine('Nothing to export — load or unfilter campaigns first', 'err'); return; }
+  const headers = ['Campaign','Type','Status','DID','Campaign ID'];
+  const rows = list.map(c => [getField(c,'name'), getField(c,'type'), getField(c,'status'), getField(c,'did'), getField(c,'id')]);
+  const csv = [headers, ...rows].map(r => r.map(v => `"${String(v).replace(/"/g,'""')}"`).join(',')).join('\n');
+  const blob = new Blob([csv], { type: 'text/csv' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `campaigns_${new Date().toISOString().slice(0,19).replace(/[:T]/g,'-')}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+  logLine(`Exported ${list.length} row(s) to CSV`, 'ok');
+}
 
 function getField(c, key){
   switch(key){
@@ -311,14 +398,17 @@ function getField(c, key){
 function applyFilterSort(){
   const q = (document.getElementById('filterInput').value || '').toLowerCase();
   const statusF = document.getElementById('statusFilter').value;
+  const typeF = document.getElementById('typeFilter').value;
 
   let list = allCampaigns.filter(c => {
     const name = getField(c,'name').toLowerCase();
     const did = String(getField(c,'did')).toLowerCase();
     const status = String(getField(c,'status')).toUpperCase();
+    const type = getField(c,'type');
     const matchesQ = !q || name.includes(q) || did.includes(q);
     const matchesStatus = !statusF || status.includes(statusF);
-    return matchesQ && matchesStatus;
+    const matchesType = !typeF || type === typeF;
+    return matchesQ && matchesStatus && matchesType;
   });
 
   if (sortState.key){
@@ -331,7 +421,9 @@ function applyFilterSort(){
     });
   }
 
+  lastFilteredList = list;
   renderCampaigns(list, allCampaigns.length);
+  renderSummary(list);
 }
 
 function renderCampaigns(list, totalCount){
@@ -389,10 +481,12 @@ function renderCampaigns(list, totalCount){
 
 document.getElementById('filterInput').addEventListener('input', applyFilterSort);
 document.getElementById('statusFilter').addEventListener('change', applyFilterSort);
+document.getElementById('typeFilter').addEventListener('change', applyFilterSort);
+document.getElementById('btnExport').addEventListener('click', () => exportCsv(lastFilteredList));
 
 
 
-document.getElementById('btnLoad').addEventListener('click', async () => {
+async function loadCampaigns(resetFilters){
   const btn = document.getElementById('btnLoad');
   btn.disabled = true;
   const res = await callApi('/ca_apis/getAvailableCampaigns', {}, 'GET');
@@ -400,12 +494,29 @@ document.getElementById('btnLoad').addEventListener('click', async () => {
   if (res.ok) {
     const list = res.data.message || res.data.Campaigns || res.data.campaigns || res.data.data || res.data;
     allCampaigns = Array.isArray(list) ? list : [];
-    sortState = { key: null, dir: 1 };
-    document.getElementById('filterInput').value = '';
-    document.getElementById('statusFilter').value = '';
+    if (resetFilters){
+      sortState = { key: null, dir: 1 };
+      document.getElementById('filterInput').value = '';
+      document.getElementById('statusFilter').value = '';
+      document.getElementById('typeFilter').value = '';
+    }
+    populateTypeFilter();
     applyFilterSort();
   } else {
     els.campaignArea.innerHTML = `<div class="empty"><span class="big">⚠</span>Request failed — check Debug Log below</div>`;
+  }
+}
+
+document.getElementById('btnLoad').addEventListener('click', () => loadCampaigns(true));
+
+let refreshTimer = null;
+document.getElementById('autoRefresh').addEventListener('change', (e) => {
+  if (e.target.checked){
+    logLine('Auto-refresh enabled — polling every 30s');
+    refreshTimer = setInterval(() => loadCampaigns(false), 30000);
+  } else {
+    logLine('Auto-refresh disabled');
+    clearInterval(refreshTimer);
   }
 });
 
@@ -414,6 +525,31 @@ document.getElementById('btnLoad').addEventListener('click', async () => {
 document.getElementById('btnClearLog').addEventListener('click', () => {
   els.log.innerHTML = '';
   logLine('log cleared');
+});
+
+document.getElementById('btnAgentLookup').addEventListener('click', async () => {
+  const agentId = document.getElementById('agentIdInput').value.trim();
+  if (!agentId) return;
+  const btn = document.getElementById('btnAgentLookup');
+  btn.disabled = true;
+  const res = await callApi('/ca_apis/agentDetails', { agentID: agentId }, 'GET');
+  btn.disabled = false;
+
+  const area = document.getElementById('agentArea');
+  if (!res.ok){
+    area.innerHTML = `<div class="empty" style="padding:20px"><span class="big">⚠</span>Lookup failed — check Debug Log below (endpoint path may need a one-line fix, same as the campaigns one did)</div>`;
+    return;
+  }
+  const data = res.data.message || res.data.data || res.data;
+  const obj = Array.isArray(data) ? data[0] : data;
+  if (!obj || typeof obj !== 'object'){
+    area.innerHTML = `<div class="empty" style="padding:20px"><span class="big">∅</span>No agent found for that ID</div>`;
+    return;
+  }
+  const cells = Object.entries(obj).map(([k,v]) => `
+    <div class="kv"><div class="k">${k}</div><div class="v">${v === null || v === '' ? '—' : v}</div></div>
+  `).join('');
+  area.innerHTML = `<div class="kv-grid">${cells}</div>`;
 });
 
 logLine('Console ready. Click "Load Campaigns" to connect.');
